@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Angle Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas {
+            background-color: #ffffff;
+            border: 2px solid #e5e7eb;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            touch-action: none; /* Prevents default touch behavior */
+        }
+        #tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            white-space: nowrap;
+            display: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="text-center mb-6 max-w-xl">
+        <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-800 tracking-tight">Interactive Angle Explorer</h1>
+        <p id="info-text" class="mt-2 text-base text-gray-600 font-medium">Drag the shapes to fit them together around a common vertex.</p>
+    </div>
+
+    <div class="w-full max-w-2xl flex flex-col items-center space-y-4">
+        <canvas id="geometryCanvas" class="w-full aspect-square"></canvas>
+        <div class="flex flex-row space-x-4">
+            <button id="resetBtn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-full shadow-lg transition-transform transform hover:scale-105 active:scale-95">Reset</button>
+            <button id="nextBtn" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-6 rounded-full shadow-lg transition-transform transform hover:scale-105 active:scale-95">Next Shape</button>
+        </div>
+    </div>
+
+    <div id="tooltip" class="rounded-lg"></div>
+
+    <script>
+        const canvas = document.getElementById('geometryCanvas');
+        const ctx = canvas.getContext('2d');
+        const infoText = document.getElementById('info-text');
+        const resetBtn = document.getElementById('resetBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const tooltip = document.getElementById('tooltip');
+
+        let shapes = [];
+        let draggableShapes = [];
+        let draggingShape = null;
+        let startX, startY;
+        let startRotation = 0;
+        let startDragAngle = 0;
+        const SHAPE_SIZE = 60; // Size of the polygon
+        const ANGLE_MARKER_SIZE = 25; // Size of the colored wedge
+
+        const allShapes = [
+            { id: 0, sides: 3, name: 'Triangle', color: '#32cd32', vertexColors: ['#ff6347', '#4682b4', '#9acd32'] },
+            { id: 1, sides: 4, name: 'Square', color: '#1e90ff', vertexColors: ['#ffa500', '#1e90ff', '#3cb371', '#9370db'] },
+            { id: 2, sides: 6, name: 'Hexagon', color: '#ff7f50', vertexColors: ['#40e0d0', '#ffdead', '#a0522d', '#9acd32', '#6a5acd', '#ff7f50'] },
+            { id: 3, sides: 5, name: 'Pentagon', color: '#ff69b4', vertexColors: ['#ff69b4', '#87ceeb', '#f08080', '#20b2aa', '#da70d6'] },
+            { id: 4, sides: 7, name: 'Heptagon', color: '#8a2be2', vertexColors: ['#d2691e', '#8a2be2', '#00ced1', '#ff1493', '#adff2f', '#ff4500', '#4169e1'] },
+            { id: 5, sides: 8, name: 'Octagon', color: '#9932cc', vertexColors: ['#ff8c00', '#9932cc', '#00bfff', '#ffc0cb', '#778899', '#f4a460', '#90ee90', '#c71585'] }
+        ];
+
+        let currentShapeType = 0; // Starts with the triangle
+
+        function setupShapes() {
+            // Clear existing shapes
+            draggableShapes = [];
+
+            const currentShape = allShapes[currentShapeType];
+            
+            // Create a small pool of shapes for the user to pick from
+            for (let i = 0; i < 8; i++) {
+                draggableShapes.push({
+                    ...currentShape,
+                    x: (canvas.width / 2) - 150 + (i % 4) * 100,
+                    y: (canvas.height / 2) - 200 + Math.floor(i / 4) * 100,
+                    rotation: 0
+                });
+            }
+
+            // Set up initial text
+            infoText.textContent = `Drag the ${currentShape.name}s to fit them together around a common vertex.`;
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            // Draw draggable shapes
+            draggableShapes.forEach(shape => drawShape(shape));
+
+            // Draw dragging shape
+            if (draggingShape) {
+                drawShape(draggingShape);
+            }
+        }
+
+        function drawShape(shape) {
+            const { sides, x, y, rotation, color, vertexColors } = shape;
+            const angleStep = (2 * Math.PI) / sides;
+            const angleOffset = Math.PI / 2;
+            const currentRotation = rotation;
+
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(currentRotation);
+            
+            // Draw the polygon outline
+            ctx.beginPath();
+            for (let i = 0; i < sides; i++) {
+                const angle = i * angleStep + angleOffset;
+                const sx = SHAPE_SIZE * Math.cos(angle);
+                const sy = SHAPE_SIZE * Math.sin(angle);
+                if (i === 0) {
+                    ctx.moveTo(sx, sy);
+                } else {
+                    ctx.lineTo(sx, sy);
+                }
+            }
+            ctx.closePath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Draw the colored angle sections
+            for (let i = 0; i < sides; i++) {
+                const prevAngle = (i - 1 + sides) * angleStep + angleOffset;
+                const currentAngle = i * angleStep + angleOffset;
+                const nextAngle = (i + 1) * angleStep + angleOffset;
+
+                // Points of the main polygon
+                const prevVx = SHAPE_SIZE * Math.cos(prevAngle);
+                const prevVy = SHAPE_SIZE * Math.sin(prevAngle);
+                const currentVx = SHAPE_SIZE * Math.cos(currentAngle);
+                const currentVy = SHAPE_SIZE * Math.sin(currentAngle);
+                const nextVx = SHAPE_SIZE * Math.cos(nextAngle);
+                const nextVy = SHAPE_SIZE * Math.sin(nextAngle);
+
+                // Use linear interpolation to find points a short distance along the sides
+                const p1x = currentVx + (prevVx - currentVx) * (ANGLE_MARKER_SIZE / SHAPE_SIZE);
+                const p1y = currentVy + (prevVy - currentVy) * (ANGLE_MARKER_SIZE / SHAPE_SIZE);
+                const p2x = currentVx + (nextVx - currentVx) * (ANGLE_MARKER_SIZE / SHAPE_SIZE);
+                const p2y = currentVy + (nextVy - currentVy) * (ANGLE_MARKER_SIZE / SHAPE_SIZE);
+
+                ctx.beginPath();
+                ctx.moveTo(currentVx, currentVy);
+                ctx.lineTo(p1x, p1y);
+                ctx.lineTo(p2x, p2y);
+                ctx.closePath();
+                ctx.fillStyle = vertexColors[i % vertexColors.length];
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
+
+        function getMousePos(event) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: event.clientX - rect.left,
+                y: event.clientY - rect.top
+            };
+        }
+
+        function getTouchPos(event) {
+            const rect = canvas.getBoundingClientRect();
+            const touch = event.touches[0];
+            return {
+                x: touch.clientX - rect.left,
+                y: touch.clientY - rect.top
+            };
+        }
+
+        function getShapeAtPos(x, y) {
+            for (let i = draggableShapes.length - 1; i >= 0; i--) {
+                const shape = draggableShapes[i];
+                const dx = x - shape.x;
+                const dy = y - shape.y;
+                if (Math.sqrt(dx * dx + dy * dy) < SHAPE_SIZE) {
+                    return shape;
+                }
+            }
+            return null;
+        }
+
+        function handleStart(pos) {
+            draggingShape = getShapeAtPos(pos.x, pos.y);
+            if (draggingShape) {
+                startX = pos.x;
+                startY = pos.y;
+                startRotation = draggingShape.rotation;
+                // Calculate the initial angle from the shape's center to the mouse position
+                startDragAngle = Math.atan2(pos.y - draggingShape.y, pos.x - draggingShape.x);
+            }
+        }
+
+        function handleMove(pos) {
+            if (draggingShape) {
+                // Translation logic
+                const dx = pos.x - startX;
+                const dy = pos.y - startY;
+                draggingShape.x += dx;
+                draggingShape.y += dy;
+                
+                // Rotation logic
+                const currentDragAngle = Math.atan2(pos.y - draggingShape.y, pos.x - draggingShape.x);
+                const angleDelta = currentDragAngle - startDragAngle;
+                draggingShape.rotation = startRotation + angleDelta;
+                
+                // Update start position for the next frame
+                startX = pos.x;
+                startY = pos.y;
+                
+                render();
+            }
+        }
+
+        function handleEnd() {
+            if (draggingShape) {
+                draggingShape = null;
+                render();
+            }
+        }
+
+        // Event Listeners
+        canvas.addEventListener('mousedown', (e) => {
+            handleStart(getMousePos(e));
+        });
+        canvas.addEventListener('mousemove', (e) => {
+            handleMove(getMousePos(e));
+        });
+        canvas.addEventListener('mouseup', (e) => {
+            handleEnd();
+        });
+        canvas.addEventListener('mouseout', (e) => {
+             // Handle mouse leaving the canvas
+            if (draggingShape) {
+                handleEnd();
+            }
+        });
+
+        // Touch event listeners
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            handleStart(getTouchPos(e));
+        });
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            handleMove(getTouchPos(e));
+        });
+        canvas.addEventListener('touchend', (e) => {
+            handleEnd();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            setupShapes();
+            render();
+        });
+
+        nextBtn.addEventListener('click', () => {
+            currentShapeType = (currentShapeType + 1) % allShapes.length;
+            setupShapes();
+            render();
+        });
+
+        function resizeCanvas() {
+            const size = Math.min(window.innerWidth * 0.8, window.innerHeight * 0.7);
+            canvas.width = size;
+            canvas.height = size;
+            setupShapes();
+            render();
+        }
+
+        window.onload = resizeCanvas;
+        window.onresize = resizeCanvas;
+    </script>
+</body>
+</html>
